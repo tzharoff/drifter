@@ -1,6 +1,6 @@
 // src/scripts/eroadDryRun.ts
 
-import { normalizeEroadRecords } from "../lib/eroad/adapter.js";
+import { normalizeEroadRecords } from "../lib/eroad/adapter";
 
 async function run() {
   // Simulated EROAD payload (replace later with real fetch)
