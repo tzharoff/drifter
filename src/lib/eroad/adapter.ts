@@ -8,11 +8,8 @@ import { NormalizedDailyMetric } from "@/domain/metrics/NormalizedDailyMetric";
 export async function buildDailyEroadMetrics(
   metricDate: string
 ): Promise<NormalizedDailyMetric[]> {
-  // 1️⃣ Fetch raw data
+  // 1️⃣ Fetch HOS + Reduce
   const hosEvents = await fetchHosForDate(metricDate);
-  const mileageEvents = await fetchMileageForDate(metricDate);
-
-  // 2️⃣ Reduce
   const driveHoursByDriver = reduceHosToDriveHours(
     hosEvents.map((e) => ({
       driverExternalId: e.driverExternalId!,
@@ -23,6 +20,8 @@ export async function buildDailyEroadMetrics(
     metricDate
   );
 
+  // 2️⃣ Fetch mileage + reduce
+  const mileageEvents = await fetchMileageForDate(metricDate);
   const milesByDriver = reduceMileageToMilesByDriver(
     mileageEvents,
     metricDate

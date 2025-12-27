@@ -7,6 +7,7 @@ describe("EROAD mileage fetch (inspect only)", () => {
 
     console.log("Mileage events sample:", events[0]);
 
+    
     expect(Array.isArray(events)).toBe(true);
   });
 });
