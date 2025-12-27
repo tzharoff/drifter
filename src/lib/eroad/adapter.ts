@@ -1,69 +1,52 @@
 // src/lib/eroad/adapter.ts
+import { fetchHosForDate } from "./fetchHos";
+import { fetchMileageForDate } from "./fetchMileage";
+import { reduceHosToDriveHours } from "./hosReducer";
+import { reduceMileageToMilesByDriver } from "./mileageReducer";
 import { NormalizedDailyMetric } from "@/domain/metrics/NormalizedDailyMetric";
 
+export async function buildDailyEroadMetrics(
+  metricDate: string
+): Promise<NormalizedDailyMetric[]> {
+  // 1️⃣ Fetch raw data
+  const hosEvents = await fetchHosForDate(metricDate);
+  const mileageEvents = await fetchMileageForDate(metricDate);
 
-const sample: EroadDailyRecord[] = [
-  {
-    driver: { externalId: "ER123", name: "Jane Driver" },
-    route: { code: "WA-542" },
-    date: "2025-12-23T00:00:00Z",
-    totals: {
-      miles: 142.6,
-      driveHours: 5.4,
-    },
-  },
-];
-
-console.log(normalizeEroadRecords(sample));
-
-
-/**
- * Minimal shape of what we care about from EROAD.
- * Everything else is ignored on purpose.
- */
-export type EroadDailyRecord = {
-  driver: {
-    externalId: string;
-    name?: string;
-  };
-  route: {
-    code: string;
-  };
-  date: string; // ISO or YYYY-MM-DD
-  totals: {
-    miles: number;
-    driveHours: number;
-  };
-};
-
-export function normalizeEroadRecords(
-  records: EroadDailyRecord[]
-): NormalizedDailyMetric[] {
-  const mapped = records.map((r) => {
-    if (
-      !r.driver?.externalId ||
-      !r.route?.code ||
-      !r.date ||
-      typeof r.totals?.miles !== "number" ||
-      typeof r.totals?.driveHours !== "number"
-    ) {
-      return null;
-    }
-
-    const metric: NormalizedDailyMetric = {
-      driverExternalId: r.driver.externalId,
-      routeCode: r.route.code,
-      metricDate: r.date.slice(0, 10),
-      miles: r.totals.miles,
-      driveHours: r.totals.driveHours,
-      source: "eroad",
-    };
-
-    return metric;
-  });
-
-  return mapped.filter(
-    (r): r is NormalizedDailyMetric => r !== null
+  // 2️⃣ Reduce
+  const driveHoursByDriver = reduceHosToDriveHours(
+    hosEvents.map((e) => ({
+      driverExternalId: e.driverExternalId!,
+      status: e.status,
+      startTime: e.startTime,
+      endTime: e.endTime,
+    })),
+    metricDate
   );
-}
 
+  const milesByDriver = reduceMileageToMilesByDriver(
+    mileageEvents,
+    metricDate
+  );
+
+  // 3️⃣ Union of drivers
+  const driverIds = new Set<string>([
+    ...driveHoursByDriver.keys(),
+    ...milesByDriver.keys(),
+  ]);
+
+  // 4️⃣ Adapt → NormalizedDailyMetric
+  const metrics: NormalizedDailyMetric[] = [];
+
+  for (const driverExternalId of driverIds) {
+    metrics.push({
+      driverExternalId,
+      routeCode: "UNKNOWN", // resolved later
+      metricDate,
+      miles: milesByDriver.get(driverExternalId) ?? 0,
+      driveHours: driveHoursByDriver.get(driverExternalId) ?? 0,
+      source: "eroad",
+    });
+  }
+
+  return metrics;
+}

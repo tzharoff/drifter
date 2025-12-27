@@ -30,16 +30,13 @@ export async function POST(req: Request) {
       );
     }
 
-    let insertedCount = 0;
-
     const url = new URL(req.url);
     const dryRun = url.searchParams.get("dryRun") === "true";
 
+    let insertedCount = 0;
 
     for (const record of validRecords) {
-      if (dryRun) {
-        continue;
-      }
+      if (dryRun) continue;
 
       const {
         driverExternalId,
@@ -50,35 +47,47 @@ export async function POST(req: Request) {
         source,
       } = record;
 
-      // 1️⃣ Upsert driver (name may be null for now)
+      // 1️⃣ Upsert driver
       const driverResult = await pool.query(
         `
         insert into drivers (external_id)
         values ($1)
-        on conflict (external_id)
-        do update set external_id = excluded.external_id
+        on conflict (external_id) do nothing
         returning id
         `,
         [driverExternalId]
       );
 
-      const driverId = driverResult.rows[0].id;
+      const driverId =
+        driverResult.rows[0]?.id ??
+        (
+          await pool.query(
+            `select id from drivers where external_id = $1`,
+            [driverExternalId]
+          )
+        ).rows[0].id;
 
       // 2️⃣ Upsert route
       const routeResult = await pool.query(
         `
         insert into routes (code)
         values ($1)
-        on conflict (code)
-        do update set code = excluded.code
+        on conflict (code) do nothing
         returning id
         `,
         [routeCode]
       );
 
-      const routeId = routeResult.rows[0].id;
+      const routeId =
+        routeResult.rows[0]?.id ??
+        (
+          await pool.query(
+            `select id from routes where code = $1`,
+            [routeCode]
+          )
+        ).rows[0].id;
 
-      // 3️⃣ Insert daily metric (idempotent)
+      // 3️⃣ Insert metric
       const metricResult = await pool.query(
         `
         insert into daily_driver_metrics (
@@ -96,8 +105,6 @@ export async function POST(req: Request) {
         [metricDate, driverId, routeId, miles, driveHours, source]
       );
 
-
-
       if (metricResult.rowCount === 1) {
         insertedCount++;
       }
@@ -107,8 +114,9 @@ export async function POST(req: Request) {
       status: "ok",
       dryRun,
       received: records.length,
+      valid: validRecords.length,
       inserted: insertedCount,
-      skipped: records.length - insertedCount,
+      skipped: validRecords.length - insertedCount,
     });
   } catch (err) {
     console.error("❌ Ingest error", err);
@@ -118,3 +126,4 @@ export async function POST(req: Request) {
     );
   }
 }
+
